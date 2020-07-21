@@ -11,6 +11,7 @@
 #include "blocking_queue.hpp"
 #include <boost/chrono.hpp>
 #include <boost/thread/thread.hpp> 
+#include <boost/thread/latch.hpp>
 
 
 
@@ -105,31 +106,24 @@ size_t BlockingQueue<T>::size() const {
 }
 
 
-
-
-
-
-
 struct imgFileReadRequest {
     std::string imgFilePath;
     uint8_t *arr; 
     int index;
+    boost::latch* gen_latch;
 };
 
 BlockingQueue<imgFileReadRequest*> imgReadQueue;
 
 void readimg_thread() {
-
-    std::cout << "starting thread " << std::endl;
     while (1) {
         auto request = imgReadQueue.pop();
         auto filename = request->imgFilePath;
         uint8_t * arr = request->arr;
         int batch_index = request->index;
-
-        std::cout << "process " << filename << "index" << batch_index;
-
-        auto time_now = boost::posix_time::microsec_clock::universal_time();
+	      boost::latch * gen_latch = request->gen_latch;
+        //std::cout << "process " << filename << "index" << batch_index;
+        //auto time_now = boost::posix_time::microsec_clock::universal_time();
         Mat image;
         image = imread(filename, CV_LOAD_IMAGE_COLOR);   // Read the file
         if(! image.data )                              // Check for invalid input
@@ -139,17 +133,13 @@ void readimg_thread() {
         }
         Mat resized_image;
         cv::resize(image,resized_image,Size(224,224));
-
         std::vector<Mat> bgr_planes;
         split(resized_image,bgr_planes);
-
-
-        auto time_now1 = boost::posix_time::microsec_clock::universal_time();
-        auto time_elapse = time_now1 - time_now;
-        int ticks = time_elapse.ticks();
-        std::cout << filename <<":"<< ticks << std::endl;
+        // auto time_now1 = boost::posix_time::microsec_clock::universal_time();
+        // auto time_elapse = time_now1 - time_now;
+        // int ticks = time_elapse.ticks();
+        // std::cout << filename <<":"<< ticks << std::endl;
         //from caffe code 
-
         int channel = 3;
         int width = 224;
         int height = 224;
@@ -158,6 +148,7 @@ void readimg_thread() {
             uint8_t * dst_addr = _arr + c*width * height;
             std::memcpy(dst_addr,bgr_planes[c].data,sizeof (uint8_t) *  width * height);
         }
+	      gen_latch->count_down();
     }
 }
 
@@ -178,7 +169,7 @@ int main(int argc, char ** argv)
     }
     char * imgFilesList = argv[1];
 
-    int num_worker = 96;
+    int num_worker = 48;
     std::vector<boost::thread *> threads;
 
 
@@ -189,19 +180,29 @@ int main(int argc, char ** argv)
 
     int total_size = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step * channel * width * height;
     uint8_t * arr = new uint8_t[total_size];
-
     std::string file;
     ifstream myfile(imgFilesList);
     int i = 0;
+    int total_batch_size = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step;
+    auto start_time = boost::posix_time::microsec_clock::universal_time();
 
+    boost::latch* gen_latch = new boost::latch(total_batch_size);
     while (getline(myfile,file)) {
-        std::cout << file << std::endl; 
-        for (auto j = 0; j < 300; j++) 
-        imgReadQueue.push(new imgFileReadRequest {file,arr,i});
+        imgReadQueue.push(new imgFileReadRequest {file,arr,i,gen_latch});
         i++;
     }
+    if (! gen_latch->try_wait())
+      if (gen_latch->wait_for(boost::chrono::milliseconds(100)) ==  boost::cv_status::timeout)
+  	    if (gen_latch->wait_until(boost::chrono::steady_clock::now()+boost::chrono::milliseconds(100)) ==  boost::cv_status::timeout)
+          gen_latch->wait();
+    
+    auto time_now = boost::posix_time::microsec_clock::universal_time();
+    auto time_elapse = time_now - start_time;
+    int ticks = time_elapse.ticks();
+    std::cout << "Total Cost:"<< ticks << std::endl;
+
+    delete gen_latch;
   
-    boost::this_thread::sleep_for(boost::chrono::milliseconds(1000000));
 }
 
 
