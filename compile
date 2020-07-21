@@ -1,0 +1,14 @@
+rm -rf *.so
+cv_opts="-lopencv_shape -lopencv_stitching -lopencv_superres -lopencv_videostab -lopencv_aruco -lopencv_bgsegm -lopencv_bioinspired -lopencv_ccalib -lopencv_datasets -lopencv_dpm -lopencv_face -lopencv_freetype -lopencv_fuzzy -lopencv_hdf -lopencv_line_descriptor -lopencv_optflow -lopencv_video -lopencv_plot -lopencv_reg -lopencv_saliency -lopencv_stereo -lopencv_structured_light -lopencv_phase_unwrapping -lopencv_rgbd -lopencv_viz -lopencv_surface_matching -lopencv_text -lopencv_ximgproc -lopencv_calib3d -lopencv_features2d -lopencv_flann -lopencv_xobjdetect -lopencv_objdetect -lopencv_ml -lopencv_xphoto -lopencv_highgui -lopencv_videoio -lopencv_imgcodecs -lopencv_photo -lopencv_imgproc -lopencv_core "
+boost_opts="-lboost_system -lboost_filesystem -lboost_numpy3 -lboost_date_time"
+opt="-fPIC --shared -O3"
+opt_exec="-fPIC -O3 "
+g++  ${opt} -o dataset.so dataset.cpp -lboost_python3 -I/usr/include/python3.6/ ${boost_opts} ${cv_opts}
+#g++  ${opt} --shared -o world.so world.cpp -lboost_python -I/usr/include/python2.7/ ${boost_opts} ${cv_opts}
+#g++  ${opt} --shared -o iterator_ext.so iterator_ext.cpp -lboost_python -I/usr/include/python2.7/ ${boost_opts} ${cv_opts}
+g++  ${opt_exec} -o numpy_test numpy_test.cpp -lboost_python3 -I/usr/include/python3.6/ ${boost_opts} ${cv_opts} -lpython3.6m
+if [ $? -ne 0 ];then
+	echo "Compiled failed"
+	exit 1
+fi
+time python -c "import dataset;  x = dataset.ImagenetDataset('/data/datasets/imagenets/raw',150,4,8,8,16,16,0.5,False); x.read_batch_files(0,0)" > /tmp/1
