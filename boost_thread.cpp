@@ -107,7 +107,7 @@ size_t BlockingQueue<T>::size() const {
 
 struct imgFileReadRequest {
     std::string imgFilePath;
-    uint8_t *arr; 
+    float *arr; 
     int index;
     boost::latch* gen_latch;
 };
@@ -118,7 +118,7 @@ void readimg_thread() {
     while (1) {
         auto request = imgReadQueue.pop();
         auto filename = request->imgFilePath;
-        uint8_t * arr = request->arr;
+        float * arr = request->arr;
         int batch_index = request->index;
 	      boost::latch * gen_latch = request->gen_latch;
         //std::cout << "process " << filename << "index" << batch_index;
@@ -132,8 +132,10 @@ void readimg_thread() {
         }
         Mat resized_image;
         cv::resize(image,resized_image,Size(224,224));
+        Mat resized_image_fp32;
+        resized_image.convertTo(resized_image_fp32,CV_32FC3);
         std::vector<Mat> bgr_planes;
-        split(resized_image,bgr_planes);
+        split(resized_image_fp32,bgr_planes);
         // auto time_now1 = boost::posix_time::microsec_clock::universal_time();
         // auto time_elapse = time_now1 - time_now;
         // int ticks = time_elapse.ticks();
@@ -142,10 +144,10 @@ void readimg_thread() {
         int channel = 3;
         int width = 224;
         int height = 224;
-        uint8_t * _arr = arr + batch_index * 3 * 224 * 224;
+        float * _arr = arr + batch_index * 3 * 224 * 224;
         for (auto c = 0 ; c < channel; c++) {
-            uint8_t * dst_addr = _arr + c*width * height;
-            std::memcpy(dst_addr,bgr_planes[c].data,sizeof (uint8_t) *  width * height);
+            float * dst_addr = _arr + c*width * height;
+            std::memcpy(dst_addr,bgr_planes[c].data,sizeof (float) *  width * height);
         }
 	      gen_latch->count_down();
     }
@@ -180,7 +182,7 @@ int main(int argc, char ** argv)
     //put pair into blocking queue
 
     int total_size = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step * channel * width * height;
-    uint8_t * arr = new uint8_t[total_size];
+    float * arr = new float[total_size];
     std::string file;
     ifstream myfile(imgFilesList);
     
@@ -198,12 +200,6 @@ int main(int argc, char ** argv)
   	    if (gen_latch->wait_until(boost::chrono::steady_clock::now()+boost::chrono::milliseconds(100)) ==  boost::cv_status::timeout)
           gen_latch->wait();
 
-    /*
-    float * arr_float = new float[total_size];
-    for (auto i = 0; i<total_batch_size*channel*width*height; i++) {
-        arr_float[i] = static_cast<float>(arr[i]);
-    }
-    */
     int first_dim = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step;
     auto shape = p::make_tuple(first_dim,
                   channel,
@@ -214,7 +210,7 @@ int main(int argc, char ** argv)
                   width * height,
                   width,
                   1) ;
-    np::dtype dt1 = np::dtype::get_builtin<uint8_t>();
+    np::dtype dt1 = np::dtype::get_builtin<float>();
     auto mul_data_ex = np::from_data(arr,
                     dt1,
                     shape,
@@ -232,10 +228,10 @@ int main(int argc, char ** argv)
                 ); 
     
     mul_data_ex = mul_data_ex.reshape(shape_l);
-   //np::dtype dt_float32 = np::dtype::get_builtin<float>();
+//   np::dtype dt_float32 = np::dtype::get_builtin<float>();
 
     auto time_before_cast = boost::posix_time::microsec_clock::universal_time();
-    //mul_data_ex = mul_data_ex.astype(dt_float32);
+//    mul_data_ex = mul_data_ex.astype(dt_float32);
     auto time_after_cast = boost::posix_time::microsec_clock::universal_time();
     auto elapsed_cast = time_after_cast - time_before_cast;
 
