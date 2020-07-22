@@ -15,7 +15,7 @@ class BlockingQueue<T>::sync {
   boost::condition_variable condition_;
 };
  
-template<typename   T>
+template<typename  T>
 BlockingQueue<T>::BlockingQueue()
     : sync_(new sync()) {
 }
@@ -35,7 +35,6 @@ bool BlockingQueue<T>::try_pop(T* t) {
   if (queue_.empty()) {
     return false;
   }
-
   *t = queue_.front();
   queue_.pop();
   return true;
@@ -61,7 +60,6 @@ bool BlockingQueue<T>::try_peek(T* t) {
   if (queue_.empty()) {
     return false;
   }
-
   *t = queue_.front();
   return true;
 }

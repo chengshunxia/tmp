@@ -15,7 +15,6 @@
 
 
 
-
 using namespace cv;
 using namespace std;
 namespace p = boost::python;
@@ -155,9 +154,11 @@ void readimg_thread() {
 int main(int argc, char ** argv)
 {
 
+    Py_Initialize();
+		np::initialize();
     int batch_per_graph = 4;
     int replication_factor = 8;
-    int gradient_accl_factor = 8;
+    int gradient_accl_factor = 16;
     int batches_per_step = 16;
     int channel = 3;
     int width = 224;
@@ -182,11 +183,12 @@ int main(int argc, char ** argv)
     uint8_t * arr = new uint8_t[total_size];
     std::string file;
     ifstream myfile(imgFilesList);
-    int i = 0;
+    
     int total_batch_size = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step;
     auto start_time = boost::posix_time::microsec_clock::universal_time();
 
     boost::latch* gen_latch = new boost::latch(total_batch_size);
+    int i = 0;
     while (getline(myfile,file)) {
         imgReadQueue.push(new imgFileReadRequest {file,arr,i,gen_latch});
         i++;
@@ -195,12 +197,58 @@ int main(int argc, char ** argv)
       if (gen_latch->wait_for(boost::chrono::milliseconds(100)) ==  boost::cv_status::timeout)
   	    if (gen_latch->wait_until(boost::chrono::steady_clock::now()+boost::chrono::milliseconds(100)) ==  boost::cv_status::timeout)
           gen_latch->wait();
+
+    /*
+    float * arr_float = new float[total_size];
+    for (auto i = 0; i<total_batch_size*channel*width*height; i++) {
+        arr_float[i] = static_cast<float>(arr[i]);
+    }
+    */
+    int first_dim = batch_per_graph * replication_factor * gradient_accl_factor * batches_per_step;
+    auto shape = p::make_tuple(first_dim,
+                  channel,
+                  height,
+                  width
+                );
+    auto stride = p::make_tuple(width * height * channel,
+                  width * height,
+                  width,
+                  1) ;
+    np::dtype dt1 = np::dtype::get_builtin<uint8_t>();
+    auto mul_data_ex = np::from_data(arr,
+                    dt1,
+                    shape,
+                    stride,
+                    p::object());
     
+    
+    auto shape_l = p::make_tuple(batches_per_step,
+                  gradient_accl_factor,
+                  replication_factor,
+                  batch_per_graph,
+                  channel,
+                  height,
+                  width
+                ); 
+    
+    mul_data_ex = mul_data_ex.reshape(shape_l);
+   //np::dtype dt_float32 = np::dtype::get_builtin<float>();
+
+    auto time_before_cast = boost::posix_time::microsec_clock::universal_time();
+    //mul_data_ex = mul_data_ex.astype(dt_float32);
+    auto time_after_cast = boost::posix_time::microsec_clock::universal_time();
+    auto elapsed_cast = time_after_cast - time_before_cast;
+
     auto time_now = boost::posix_time::microsec_clock::universal_time();
     auto time_elapse = time_now - start_time;
     int ticks = time_elapse.ticks();
-    std::cout << "Total Cost:"<< ticks << std::endl;
+    int ticks_cast = elapsed_cast.ticks();
 
+
+    std::cout << "Total Cost:"<< ticks << std::endl;
+    std::cout << "Total Cost for elapsed_cast:"<< ticks_cast << std::endl;
+    std::cout << "Selective multidimensional array :: "<<std::endl
+      << p::extract<char const *>(p::str(mul_data_ex)) << std::endl ;
     delete gen_latch;
   
 }
