@@ -173,11 +173,10 @@ int main(int argc, char ** argv)
     char * imgFilesList = argv[1];
 
     int num_worker = 48;
-    std::vector<boost::thread *> threads;
 
-
+    boost::thread_group workers;
     for (auto i = 0; i <num_worker; i++ ) {
-        threads.push_back(new boost::thread(readimg_thread));
+        workers.create_thread(&readimg_thread);
     }
     //put pair into blocking queue
 
@@ -245,6 +244,8 @@ int main(int argc, char ** argv)
     std::cout << "Total Cost for elapsed_cast:"<< ticks_cast << std::endl;
     std::cout << "Selective multidimensional array :: "<<std::endl
       << p::extract<char const *>(p::str(mul_data_ex)) << std::endl ;
+    workers.interrupt_all();
+    workers.join_all();
     delete gen_latch;
   
 }
